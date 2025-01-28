@@ -5,6 +5,7 @@
 #
 # This software is published at https://github.com/anvilistas/amoni
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -371,6 +372,21 @@ def add_column(app: str, table: str, name: str, data_type: str, target: str = No
     config["db_schema"][table]["columns"].append(column)
     _save_app_config(app, config)
     _commit_all(f"Add {name} column to {table} data table")
+
+
+def copy_main_app_requirements() -> None:
+    """Copy requirements.txt from main app's server_code to app folder if it exists"""
+    # Get main app name from config using consistent pattern
+    anvil_config = load(ANVIL_CONFIG_FILE.open(), Loader=Loader)
+    main_app = Path(anvil_config["app"]).name
+
+    # Use Path objects consistently
+    src = Path("app", main_app, "server_code", "requirements.txt")
+    dst = Path("app", "requirements.txt")
+
+    # Only copy if source exists, overwriting destination if it exists
+    if src.exists():
+        shutil.copy2(src, dst)
 
 
 def checkout_version(app: str, version: str = None) -> None:

@@ -63,6 +63,9 @@ def start(
         api.build_image("app")
         api.pull_image("db")
     try:
+        # Copy requirements.txt from main app
+        api.copy_main_app_requirements()
+
         # Get configuration before starting services to fail fast if .env is missing
         current_app_port, current_db_port, origin_url = api.get_ports()
 
