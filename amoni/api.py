@@ -4,7 +4,9 @@
 # https://github.com/anvilistas/amoni/graphs/contributors
 #
 # This software is published at https://github.com/anvilistas/amoni
+import base64
 import os
+import secrets
 import shutil
 import subprocess
 from pathlib import Path
@@ -259,6 +261,58 @@ def add_submodule(url: str, path: Path, name: str) -> None:
     _commit_all(f"Add {name} submodule", repo=repo)
 
 
+def _generate_encryption_key() -> str:
+    """Generate a base64-encoded AES128 key
+
+    Returns
+    -------
+    str
+        A base64-encoded 16-byte (128-bit) key
+    """
+    # Generate 16 random bytes (128 bits) for AES-128
+    key_bytes = secrets.token_bytes(16)
+    # Encode as base64
+    return base64.b64encode(key_bytes).decode("utf-8")
+
+
+def _process_secrets(app_config: Dict, anvil_config: Dict) -> Dict:
+    """Process secrets from anvil.yaml and add them to config.yaml
+
+    Parameters
+    ----------
+    app_config
+        The anvil.yaml configuration dictionary
+    anvil_config
+        The config.yaml configuration dictionary
+
+    Returns
+    -------
+    Dict
+        Updated config.yaml configuration dictionary
+    """
+    if "secrets" not in app_config:
+        return anvil_config
+
+    for secret_name, secret_info in app_config["secrets"].items():
+        secret_type = secret_info.get("type")
+        if secret_type == "secret":
+            # Handle regular secrets
+            if "secret" not in anvil_config:
+                anvil_config["secret"] = {}
+            # Only add if secret doesn't exist
+            if secret_name not in anvil_config["secret"]:
+                anvil_config["secret"][secret_name] = "[PLACEHOLDER]"
+        elif secret_type == "key":
+            # Handle encryption keys
+            if "encryption-key" not in anvil_config:
+                anvil_config["encryption-key"] = {}
+            # Only generate new key if it doesn't exist
+            if secret_name not in anvil_config["encryption-key"]:
+                anvil_config["encryption-key"][secret_name] = _generate_encryption_key()
+
+    return anvil_config
+
+
 def set_app(name: str) -> None:
     """Set the app to be run by the anvil app server
 
@@ -269,6 +323,11 @@ def set_app(name: str) -> None:
     """
     anvil_config = load(ANVIL_CONFIG_FILE.open(), Loader=Loader)
     anvil_config["app"] = Path("/", "app", name).as_posix()
+
+    # Process secrets from anvil.yaml
+    app_config = _get_app_config(name)
+    anvil_config = _process_secrets(app_config, anvil_config)
+
     dump(anvil_config, ANVIL_CONFIG_FILE.open("w"), Dumper=Dumper)
     _commit_all(f"Set {name} as the anvil app")
 
