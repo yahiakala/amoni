@@ -199,6 +199,17 @@ def _interactive_setup(directory: Path):
 
 
 @cmd.command()
+def config(
+    key: str = typer.Argument(..., help="Config key to set"),
+    value: str = typer.Argument(..., help="Value to set"),
+    parent: str = typer.Option(None, help="Parent key for collection configs"),
+):
+    """Set a configuration value in config.yaml"""
+    api.set_config(key, value, parent)
+    echo.progress(f"Updated config: {parent + '.' if parent else ''}{key}")
+    echo.done()
+
+
 def stubs(app: str = typer.Argument(..., help="App folder name")):
     """Generate stubs for the database"""
     api.generate_table_stubs(app)

@@ -448,6 +448,34 @@ def copy_main_app_requirements() -> None:
         shutil.copy2(src, dst)
 
 
+def set_config(key: str, value: str, parent_key: str = None) -> None:
+    """Set a configuration value in config.yaml
+
+    Parameters
+    ----------
+    key
+        The key to set
+    value
+        The value to set
+    parent_key
+        Optional parent key for collection configs
+    """
+    anvil_config = load(ANVIL_CONFIG_FILE.open(), Loader=Loader)
+
+    # Let YAML handle the value type naturally
+    if parent_key:
+        # Handle collection config (like secrets)
+        if parent_key not in anvil_config:
+            anvil_config[parent_key] = {}
+        anvil_config[parent_key][key] = load(f"{value}", Loader=Loader)
+    else:
+        # Handle single value config
+        anvil_config[key] = load(f"{value}", Loader=Loader)
+
+    dump(anvil_config, ANVIL_CONFIG_FILE.open("w"), Dumper=Dumper)
+    _commit_all(f"Update config: {parent_key + '.' if parent_key else ''}{key}")
+
+
 def checkout_version(app: str, version: str = None) -> None:
     """Checkout a specific version (tag or branch) of a submodule
 
