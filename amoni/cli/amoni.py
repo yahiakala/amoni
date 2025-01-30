@@ -192,6 +192,59 @@ def _interactive_setup(directory: Path):
         with open(env_path, "w") as f:
             f.write("\n".join(new_content) + "\n")
 
+    # Load existing config to check for secrets and encryption keys
+    try:
+        anvil_config = api.load(api.ANVIL_CONFIG_FILE.open(), Loader=api.Loader)
+        existing_secrets = anvil_config.get("secret", {})
+        existing_encryption_keys = anvil_config.get("encryption-key", {})
+    except (FileNotFoundError, KeyError):
+        existing_secrets = {}
+        existing_encryption_keys = {}
+
+    # App Secrets Configuration
+    if typer.confirm(
+        "Would you like to configure app secrets and encryption keys?", default=True
+    ):
+        # Handle regular secrets
+        if existing_secrets:
+            echo.progress("Current secrets found in config.yaml")
+            for secret_name, current_value in existing_secrets.items():
+                new_value = typer.prompt(
+                    f"Enter value for '{secret_name}' (press Enter to keep current: {current_value})",
+                    default="",
+                    show_default=False,
+                )
+                if new_value:  # Only update if a value was entered
+                    api.set_config(secret_name, new_value, "secret")
+
+        # Handle encryption keys
+        if existing_encryption_keys:
+            echo.progress("\nCurrent encryption keys found in config.yaml")
+            for key_name, current_value in existing_encryption_keys.items():
+                new_value = typer.prompt(
+                    f"Enter value for '{key_name}' (press Enter to keep current: {current_value})",
+                    default="",
+                    show_default=False,
+                )
+                if new_value:  # Only update if a value was entered
+                    api.set_config(key_name, new_value, "encryption-key")
+
+    # SMTP Configuration
+    if typer.confirm("Would you like to configure SMTP settings?", default=True):
+        smtp_host = typer.prompt("Enter SMTP host (e.g., smtp.gmail.com)")
+        smtp_username = typer.prompt("Enter SMTP username")
+        smtp_password = typer.prompt("Enter SMTP password", hide_input=True)
+        smtp_port = typer.prompt("Enter SMTP port", default="587")
+        smtp_encryption = typer.prompt("Enter SMTP encryption", default="starttls")
+
+        # Set SMTP config
+        api.set_config("smtp-host", smtp_host)
+        api.set_config("smtp-username", smtp_username)
+        api.set_config("smtp-password", smtp_password)
+        api.set_config("smtp-port", smtp_port)
+        api.set_config("smtp-encryption", smtp_encryption)
+        echo.progress("SMTP configuration updated")
+
     # Commit changes
     api._commit_all("Update project configuration")
 
