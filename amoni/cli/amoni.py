@@ -142,55 +142,18 @@ def _interactive_setup(directory: Path):
         )
         app.add(dep_url, package_name, id=dep_id, as_dependency=True, set_version=True)
 
-    # Get port configurations
+    # Configure ports and URL
     app_port = typer.prompt("Enter port number for the app server", default="3030")
     db_port = typer.prompt("Enter port number for the database", default="5432")
     origin_url = typer.prompt(
         "Enter origin URL", default=f"http://localhost:{app_port}"
     )
 
-    # Update .env file with configurations
-    env_path = directory / ".env"
-    if env_path.exists():
-        with open(env_path) as f:
-            lines = f.readlines()
-
-        # Create a dictionary of existing variables and their values
-        env_vars = {}
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _ = line.split("=", 1)
-                env_vars[key] = True
-
-        # Update or append new values
-        new_content = []
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                new_content.append(line)
-            elif "=" in line:
-                key, _ = line.split("=", 1)
-                if key == "AMONI_APP_PORT":
-                    new_content.append(f"AMONI_APP_PORT={app_port}")
-                elif key == "AMONI_DB_PORT":
-                    new_content.append(f"AMONI_DB_PORT={db_port}")
-                elif key == "ORIGIN_URL":
-                    new_content.append(f"ORIGIN_URL={origin_url}")
-                else:
-                    new_content.append(line)
-
-        # Add any missing variables
-        if "AMONI_APP_PORT" not in env_vars:
-            new_content.append(f"AMONI_APP_PORT={app_port}")
-        if "AMONI_DB_PORT" not in env_vars:
-            new_content.append(f"AMONI_DB_PORT={db_port}")
-        if "ORIGIN_URL" not in env_vars:
-            new_content.append(f"ORIGIN_URL={origin_url}")
-
-        # Write back with proper line endings
-        with open(env_path, "w") as f:
-            f.write("\n".join(new_content) + "\n")
+    # Set environment variables
+    env(key="AMONI_APP_PORT", value=app_port)
+    env(key="AMONI_DB_PORT", value=db_port)
+    env(key="ORIGIN_URL", value=origin_url)
+    echo.progress("Environment variables configured")
 
     # Load existing config to check for secrets and encryption keys
     try:
@@ -260,6 +223,58 @@ def config(
     """Set a configuration value in config.yaml"""
     api.set_config(key, value, parent)
     echo.progress(f"Updated config: {parent + '.' if parent else ''}{key}")
+    echo.done()
+
+
+@cmd.command()
+def env(
+    key: str = typer.Argument(..., help="Environment variable name to set"),
+    value: str = typer.Argument(..., help="Value to set"),
+):
+    """Set an environment variable in .env file"""
+    env_path = Path(".env")
+
+    # Create empty .env if it doesn't exist
+    if not env_path.exists():
+        env_path.write_text("")
+
+    # Read existing content
+    with open(env_path) as f:
+        lines = f.readlines()
+
+    # Create a dictionary of existing variables
+    env_vars = {}
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key_found, _ = line.split("=", 1)
+            env_vars[key_found] = True
+
+    # Update or append new value
+    new_content = []
+    var_updated = False
+
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            new_content.append(line)
+        elif "=" in line:
+            key_found, _ = line.split("=", 1)
+            if key_found == key:
+                new_content.append(f"{key}={value}")
+                var_updated = True
+            else:
+                new_content.append(line)
+
+    # Add variable if it wasn't found
+    if not var_updated:
+        new_content.append(f"{key}={value}")
+
+    # Write back with proper line endings
+    with open(env_path, "w") as f:
+        f.write("\n".join(new_content) + "\n")
+
+    echo.progress(f"Updated environment variable in .env: {key}")
     echo.done()
 
 
