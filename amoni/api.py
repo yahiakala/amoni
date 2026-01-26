@@ -253,9 +253,6 @@ def add_submodule(url: str, path: Path, name: str) -> None:
     name
         The name of the submodule
     """
-    repo = pygit2.Repository(".")
-    repo.add_submodule(url, path, callbacks=AmoniRemoteCallbacks())
-    _commit_all(f"Add {name} submodule", repo=repo)
     try:
         subprocess.run(["git", "submodule", "add", url, str(path)], check=True)
         subprocess.run(["git", "add", ".gitmodules", str(path)], check=True)
