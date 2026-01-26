@@ -30,7 +30,7 @@ def main():
 @cmd.command()
 def init(
     directory: Path = typer.Argument(
-        ..., file_okay=False, resolve_path=True, help="Directory to initialiase"
+        ..., file_okay=False, resolve_path=True, help="Directory to initialize"
     ),
     app: str = typer.Argument("hello_world", help="App Folder Name"),
     interactive: bool = typer.Option(
@@ -64,6 +64,7 @@ def start(
         api.build_image("app")
         api.pull_image("db")
     try:
+        api.copy_main_app_requirements()
         current_app_port, current_db_port, origin_url, env_file_found = api.get_ports()
         if not env_file_found:
             echo.warn(
@@ -144,12 +145,60 @@ def _interactive_setup(directory: Path):
         "Enter origin URL", default=f"http://localhost:{app_port}"
     )
 
-    env_path = Path(directory, ".env")
-    load_dotenv(env_path)
+    # Set environment variables
+    env(key="AMONI_APP_PORT", value=app_port)
+    env(key="AMONI_DB_PORT", value=db_port)
+    env(key="ORIGIN_URL", value=origin_url)
+    echo.progress("Environment variables configured")
 
-    set_key(env_path, "AMONI_APP_PORT", app_port)
-    set_key(env_path, "AMONI_DB_PORT", db_port)
-    set_key(env_path, "ORIGIN_URL", origin_url)
+    try:
+        anvil_config = api.load(api.ANVIL_CONFIG_FILE.open(), Loader=api.Loader)
+        existing_secrets = anvil_config.get("secret", {})
+        existing_encryption_keys = anvil_config.get("encryption-key", {})
+    except (FileNotFoundError, KeyError):
+        existing_secrets = {}
+        existing_encryption_keys = {}
+
+    if typer.confirm(
+        "Would you like to configure app secrets and encryption keys?", default=True
+    ):
+        updated_secrets = {}
+        for secret_name, current_value in existing_secrets.items():
+            updated_secrets[secret_name] = typer.prompt(
+                f"Enter value for '{secret_name}' (press Enter to keep current: {current_value})",
+                default="",
+                show_default=False,
+            )
+        [
+            api.set_config(name, value, "secret")
+            for name, value in updated_secrets.items()
+        ]
+
+        # Handle encryption keys
+        if existing_encryption_keys:
+            echo.progress("\nCurrent encryption keys found in config.yaml")
+            for key_name, current_value in existing_encryption_keys.items():
+                new_value = typer.prompt(
+                    f"Enter value for '{key_name}' (press Enter to keep current: {current_value})",
+                    default="",
+                    show_default=False,
+                )
+                if new_value:  # Only update if a value was entered
+                    api.set_config(key_name, new_value, "encryption-key")
+
+    if typer.confirm("Would you like to configure SMTP settings?", default=True):
+        smtp_host = typer.prompt("Enter SMTP host (e.g., smtp.gmail.com)")
+        smtp_username = typer.prompt("Enter SMTP username")
+        smtp_password = typer.prompt("Enter SMTP password", hide_input=True)
+        smtp_port = typer.prompt("Enter SMTP port", default="587")
+        smtp_encryption = typer.prompt("Enter SMTP encryption", default="starttls")
+
+        api.set_config("smtp-host", smtp_host)
+        api.set_config("smtp-username", smtp_username)
+        api.set_config("smtp-password", smtp_password)
+        api.set_config("smtp-port", smtp_port)
+        api.set_config("smtp-encryption", smtp_encryption)
+        echo.progress("SMTP configuration updated")
 
     api._commit_all("Update project configuration")
 
@@ -157,6 +206,69 @@ def _interactive_setup(directory: Path):
 
 
 @cmd.command()
+def config(
+    key: str = typer.Argument(..., help="Config key to set"),
+    value: str = typer.Argument(..., help="Value to set"),
+    parent: str = typer.Option(None, help="Parent key for collection configs"),
+):
+    """Set a configuration value in config.yaml"""
+    api.set_config(key, value, parent)
+    echo.progress(f"Updated config: {parent + '.' if parent else ''}{key}")
+    echo.done()
+
+
+@cmd.command()
+def env(
+    key: str = typer.Argument(..., help="Environment variable name to set"),
+    value: str = typer.Argument(..., help="Value to set"),
+):
+    """Set an environment variable in .env file"""
+    env_path = Path(".env")
+
+    # Create empty .env if it doesn't exist
+    if not env_path.exists():
+        env_path.write_text("")
+
+    # Read existing content
+    with open(env_path) as f:
+        lines = f.readlines()
+
+    # Create a dictionary of existing variables
+    env_vars = {}
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key_found, _ = line.split("=", 1)
+            env_vars[key_found] = True
+
+    # Update or append new value
+    new_content = []
+    var_updated = False
+
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            new_content.append(line)
+        elif "=" in line:
+            key_found, _ = line.split("=", 1)
+            if key_found == key:
+                new_content.append(f"{key}={value}")
+                var_updated = True
+            else:
+                new_content.append(line)
+
+    # Add variable if it wasn't found
+    if not var_updated:
+        new_content.append(f"{key}={value}")
+
+    # Write back with proper line endings
+    with open(env_path, "w") as f:
+        f.write("\n".join(new_content) + "\n")
+
+    echo.progress(f"Updated environment variable in .env: {key}")
+    echo.done()
+
+
 def stubs(app: str = typer.Argument(..., help="App folder name")):
     """Generate stubs for the database"""
     api.generate_table_stubs(app)

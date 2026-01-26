@@ -4,7 +4,10 @@
 # https://github.com/anvilistas/amoni/graphs/contributors
 #
 # This software is published at https://github.com/anvilistas/amoni
+import base64
 import os
+import secrets
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -258,6 +261,61 @@ def add_submodule(url: str, path: Path, name: str) -> None:
     _commit_all(f"Add {name} submodule", repo=repo)
 
 
+def _generate_encryption_key() -> str:
+    """Generate a base64-encoded AES128 key
+
+    Returns
+    -------
+    str
+        A base64-encoded 16-byte (128-bit) key
+    """
+    key_bytes = secrets.token_bytes(16)
+    return base64.b64encode(key_bytes).decode("utf-8")
+
+
+def _process_secrets(app_config: Dict, anvil_config: Dict) -> Dict:
+    """Process secrets from anvil.yaml and add them to config.yaml
+
+    Parameters
+    ----------
+    app_config
+        The anvil.yaml configuration dictionary
+    anvil_config
+        The config.yaml configuration dictionary
+
+    Returns
+    -------
+    Dict
+        Updated config.yaml configuration dictionary
+    """
+    if "secrets" not in app_config:
+        return anvil_config
+
+    anvil_config.setdefault("secret", {})
+    anvil_config.setdefault("encryption-key", {})
+    # TODO: test if dumping empty dict is bad for config.yaml
+
+    secrets = app_config["secrets"]
+
+    anvil_config["secret"].update(
+        {
+            name: "[PLACEHOLDER]"
+            for name, info in secrets.items()
+            if info.get("type") == "secret" and name not in anvil_config["secret"]
+        }
+    )
+
+    anvil_config["encryption-key"].update(
+        {
+            name: _generate_encryption_key()
+            for name, info in secrets.items()
+            if info.get("type") == "key" and name not in anvil_config["encryption-key"]
+        }
+    )
+
+    return anvil_config
+
+
 def set_app(name: str) -> None:
     """Set the app to be run by the anvil app server
 
@@ -268,6 +326,11 @@ def set_app(name: str) -> None:
     """
     anvil_config = load(ANVIL_CONFIG_FILE.open(), Loader=Loader)
     anvil_config["app"] = Path("/", "app", name).as_posix()
+
+    # Process secrets from anvil.yaml
+    app_config = _get_app_config(name)
+    anvil_config = _process_secrets(app_config, anvil_config)
+
     dump(anvil_config, ANVIL_CONFIG_FILE.open("w"), Dumper=Dumper)
     _commit_all(f"Set {name} as the anvil app")
 
@@ -371,6 +434,45 @@ def add_column(app: str, table: str, name: str, data_type: str, target: str = No
     config["db_schema"][table]["columns"].append(column)
     _save_app_config(app, config)
     _commit_all(f"Add {name} column to {table} data table")
+
+
+def copy_main_app_requirements() -> None:
+    """Copy requirements.txt from main app's server_code to app folder if it exists"""
+    anvil_config = load(ANVIL_CONFIG_FILE.open(), Loader=Loader)
+    main_app = Path(anvil_config["app"]).name
+
+    src = Path("app", main_app, "server_code", "requirements.txt")
+    dst = Path("app", "requirements.txt")
+
+    if src.exists():
+        shutil.copy2(src, dst)
+
+
+def set_config(key: str, value: str, parent_key: str = None) -> None:
+    """Set a configuration value in config.yaml
+
+    Parameters
+    ----------
+    key
+        The key to set
+    value
+        The value to set
+    parent_key
+        Optional parent key for collection configs
+    """
+    anvil_config = load(ANVIL_CONFIG_FILE.open(), Loader=Loader)
+
+    loaded_value = load(f"{value}", Loader=Loader)
+    if parent_key:
+        # anvil_config.setdefault(parent_key, {})
+        # anvil_config[parent_key][key] = loaded_value
+        anvil_config.setdefault(parent_key, {})[key] = loaded_value
+        # TODO: test that this writes properly
+    else:
+        anvil_config[key] = loaded_value
+
+    dump(anvil_config, ANVIL_CONFIG_FILE.open("w"), Dumper=Dumper)
+    _commit_all(f"Update config: {parent_key + '.' if parent_key else ''}{key}")
 
 
 def checkout_version(app: str, version: str = None) -> None:
